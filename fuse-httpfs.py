@@ -8,13 +8,18 @@ from urllib.parse import quote, unquote
 from email.utils import parsedate
 from html.parser import HTMLParser
 from stat import S_IFDIR, S_IFREG
-from errno import EIO, ENOENT, EBADF
+from errno import EIO, ENOENT, EBADF, EHOSTUNREACH
 
 import fuse
 import requests
 
 FORMAT = "%(threadName)s %(asctime)-15s %(levelname)s:%(name)s %(message)s"
 logging.basicConfig(level=logging.INFO, format=FORMAT)
+
+
+class Config(object):
+    mountpoint = None
+    timeout = (5, 25)  # connect_timeout, read_timeout
 
 
 def readNetrcMachines():
@@ -60,7 +65,7 @@ class File(Path):
     def init(self):
         url = self.buildUrl()
         logging.info("File url={} name={}".format(url, self.name))
-        r = self.getSession().head(url)
+        r = self.getSession().head(url, timeout=Config.timeout)
         r.close()
         if r.status_code != 200:
             error = "Status code != 200 for {}: {}".format(url, r.status_code)
@@ -77,7 +82,7 @@ class File(Path):
         bytesRange = '{}-{}'.format(offset, min(self.size, offset+size-1))
         headers = {'range': 'bytes=' + bytesRange}
         logging.info("File.get url={} range={}".format(url, bytesRange))
-        r = self.getSession().get(url, headers=headers)
+        r = self.getSession().get(url, headers=headers, timeout=Config.timeout)
         r.close()
         if r.status_code == 200 or r.status_code == 206:
             d = r.content
@@ -106,7 +111,7 @@ class Directory(Path):
     def init(self):
         url = self.buildUrl() + "/"
         logging.info("Directory url={} name={}".format(url, self.name))
-        r = self.getSession().get(url, stream=True)
+        r = self.getSession().get(url, stream=True, timeout=Config.timeout)
         if r.status_code != 200:
             raise Exception("Status code not 200 for {}: {}".format(
                 url, r.status_code))
@@ -202,11 +207,14 @@ class HttpFs(fuse.LoggingMixIn, fuse.Operations):
 
     def getattr(self, path, fh=None):
         logging.info("getattr path={}".format(path))
-        entry = self._getPath(path)
-        if entry:
-            return entry.getAttr()
-        else:
-            raise fuse.FuseOSError(ENOENT)
+        try:
+            entry = self._getPath(path)
+            if entry:
+                return entry.getAttr()
+        except Exception as e:
+            logging.error("Error", e)
+            raise fuse.FuseOSError(EHOSTUNREACH)
+        raise fuse.FuseOSError(ENOENT)
 
     def _getPath(self, path):
         """ map path to self.root tree
@@ -244,7 +252,9 @@ class HttpFs(fuse.LoggingMixIn, fuse.Operations):
                 # the server don't return it, then just create it
                 # assuming its an directory, if a HEAD is successful
                 d = Directory.fromPath(prevEntry, lastElement)
-                if requests.head(d.buildUrl() + "/").status_code == 200:
+                r = d.getSession().head(d.buildUrl() + "/",
+                                        timeout=Config.timeout)
+                if r.status_code == 200:
                     logging.info("Create directory for path which was not " +
                                  "discovered by Index of: {}".format(path))
                     prevEntry.entries[lastElement] = d
@@ -280,14 +290,19 @@ if __name__ == '__main__':
                    help="Fork into background as a daemon")
     p.add_argument("--debug", action="store_true", help="Stay foreground")
     p.add_argument("--nothreads", action="store_true", help="Stay foreground")
+    p.add_argument("--connect_timeout", type=int,
+                   default=Config.timeout[0], help="HTTP connect timeout")
+    p.add_argument("--read_timeout", type=int,
+                   default=Config.timeout[1], help="HTTP read timeout")
 
     args = vars(p.parse_args(sys.argv[1:]))
     kwargs = {}
-    mountpoint = args.pop("mountpoint")[0]
+    Config.timeout = (args.pop("connect_timeout"), args.pop("read_timeout"))
+    Config.mountpoint = args.pop("mountpoint")[0]
     if not args.pop("no_foreground"):
         kwargs["foreground"] = True
     if args.pop("debug"):
         kwargs["debug"] = True
     kwargs.update(args)
 
-    fuse = fuse.FUSE(HttpFs(), mountpoint, **kwargs)
+    fuse = fuse.FUSE(HttpFs(), Config.mountpoint, **kwargs)
