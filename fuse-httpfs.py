@@ -282,14 +282,16 @@ class HttpFs(fuse.LoggingMixIn, fuse.Operations):
 
 if __name__ == '__main__':
     import argparse
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("mountpoint", nargs=1, help="Target directory")
     p.add_argument("--max_background", type=int, default=15,
                    help="Maximum number of background threads")
     p.add_argument("--no_foreground", action="store_true", default=False,
                    help="Fork into background as a daemon")
-    p.add_argument("--debug", action="store_true", help="Stay foreground")
-    p.add_argument("--nothreads", action="store_true", help="Stay foreground")
+    p.add_argument("--debug", action="store_true", help="Enable fuse debug")
+    p.add_argument("--nothreads", action="store_true",
+                   help="Disable fuse threads")
     p.add_argument("--connect_timeout", type=int,
                    default=Config.timeout[0], help="HTTP connect timeout")
     p.add_argument("--read_timeout", type=int,
