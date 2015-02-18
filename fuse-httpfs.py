@@ -82,9 +82,9 @@ class File(Path):
         if r.status_code == 200 or r.status_code == 206:
             d = r.content
             logging.info("Received {} bytes".format(len(d)))
-            if len(d) <= size:
+            if len(d) > size:
                 errormsg = "size {} > than expected {}".format(len(d), size)
-                logger.error(errormsg)
+                logging.error(errormsg)
                 raise fuse.FuseOSError(EIO)
             return d
         else:
