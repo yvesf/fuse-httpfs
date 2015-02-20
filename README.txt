@@ -1,15 +1,8 @@
+===========
 fuse-httpfs
 ===========
 
 python-requests based fuse read-only filesystem
-
-Requirements
-------------
-
-* fusepy
-
-* requests
-* fusepy
 
 Usage
 -----
@@ -30,3 +23,8 @@ run with --help
 
 
 Remote machines configure in ~/.netrc will appear automatically. python-requests will pick-up the authentication infos from .netrc
+
+
+## Run the tests
+
+     python3.4 -m unittest test

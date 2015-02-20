@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import os
+import sys
 import time
+import netrc
 import logging
 import logging.config
-import sys
 from urllib.parse import quote, unquote
 from email.utils import parsedate
 from html.parser import HTMLParser
@@ -13,24 +14,11 @@ from errno import EIO, ENOENT, EBADF, EHOSTUNREACH
 import fuse
 import requests
 
-FORMAT = "%(threadName)s %(asctime)-15s %(levelname)s:%(name)s %(message)s"
-logging.basicConfig(level=logging.INFO, format=FORMAT)
-
 
 class Config(object):
     mountpoint = None
     timeout = (5, 25)  # connect_timeout, read_timeout
-
-
-def readNetrcMachines():
-    machines = []
-    fh = open(os.path.expanduser("~/.netrc"), "r")
-    for line in fh.readlines():
-        a, b, *c = line.split(" ")
-        if a == "machine" and c == []:
-            machines.append(b.strip())
-    logging.info("Found netrc machines: {}".format(machines))
-    return machines
+    verify = None
 
 
 class Path:
@@ -51,6 +39,8 @@ class Path:
     @classmethod
     def fromPath(clazz, parent, pathElement):
         p = clazz(parent, unquote(pathElement))
+        if (pathElement == ""):
+            raise SystemExit(1)
         logging.info("created {} '{}' referencing {}".format(
             clazz.__name__, p.name, p.buildUrl()))
         return p
@@ -73,6 +63,7 @@ class File(Path):
         self.size = int(r.headers['content-length'])
         self.lastModified = time.mktime(parsedate(r.headers['last-modified']))
 
+        logging.info("File initialized url={} name={}".format(url, self.name))
         self.initialized = True
 
     def get(self, size, offset):
@@ -109,7 +100,7 @@ class Directory(Path):
         self.entries = {}
 
     def init(self):
-        url = self.buildUrl() + "/"
+        url = self.buildUrl()
         logging.info("Directory url={} name={}".format(url, self.name))
         r = self.getSession().get(url, stream=True, timeout=Config.timeout)
         if r.status_code != 200:
@@ -133,7 +124,7 @@ class Directory(Path):
 
     def getAttr(self):
         t = time.time()
-        nentries = 2 + len(self.entries)
+        nentries = 1
         if self.initialized:
             nentries += len(self.entries)
         return dict(st_mode=(S_IFDIR | 0o555), st_nlink=nentries,
@@ -144,9 +135,13 @@ class Server(Directory):
     def __init__(self, parent, name):
         super().__init__(parent, name)
         self.session = requests.Session()
+        self.session.verify = Config.verify
 
     def getSession(self):
         return self.session
+
+    def buildUrl(self):
+        return self.parent.buildUrl() + "/" + self.name
 
 
 class Schema(Directory):
@@ -169,7 +164,7 @@ class Root(Directory):
 
 class RelativeLinkCollector(HTMLParser):
     def __init__(self, parent):
-        super().__init__(self)
+        super().__init__(self, convert_charrefs=True)
         self.parent = parent
         self.entries = {}
 
@@ -189,7 +184,7 @@ class RelativeLinkCollector(HTMLParser):
                     self.entries[unquote(href)] = f
 
 
-class HttpFs(fuse.LoggingMixIn, fuse.Operations):
+class Httpfs(fuse.LoggingMixIn, fuse.Operations):
     """A read only http/https/ftp filesystem using python-requests."""
     def __init__(self):
         self.root = Root()
@@ -202,8 +197,11 @@ class HttpFs(fuse.LoggingMixIn, fuse.Operations):
         self.root.entries = {'http': http, 'https': https}
 
     def _getDefaultEntries(self, parent):
-        for machine in readNetrcMachines():
-            yield (machine, Server(parent, machine))
+        try:
+            for machine in netrc.netrc().hosts.keys():
+                yield (machine, Server(parent, machine))
+        except IOError as e:
+            logging.warn("No .netrc file found, no default machines")
 
     def getattr(self, path, fh=None):
         logging.info("getattr path={}".format(path))
@@ -222,6 +220,9 @@ class HttpFs(fuse.LoggingMixIn, fuse.Operations):
         logging.debug("getPath path={}".format(path))
         if path == "/":
             return self.root
+
+        if path[-1] == "/":
+            path = path[:-1]
 
         schema, *p = path[1:].split("/")
         if schema not in self.root.entries:
@@ -252,7 +253,7 @@ class HttpFs(fuse.LoggingMixIn, fuse.Operations):
                 # the server don't return it, then just create it
                 # assuming its an directory, if a HEAD is successful
                 d = Directory.fromPath(prevEntry, lastElement)
-                r = d.getSession().head(d.buildUrl() + "/",
+                r = d.getSession().head(d.buildUrl(),
                                         timeout=Config.timeout)
                 if r.status_code == 200:
                     logging.info("Create directory for path which was not " +
@@ -264,6 +265,7 @@ class HttpFs(fuse.LoggingMixIn, fuse.Operations):
         return prevEntry.entries[lastElement]
 
     def readdir(self, path, fh):
+        logging.info("readdir path=%s", path)
         entry = self._getPath(path)
         if not entry:
             raise fuse.FuseOSError(EBADF)
@@ -282,27 +284,36 @@ class HttpFs(fuse.LoggingMixIn, fuse.Operations):
 
 if __name__ == '__main__':
     import argparse
-    p = argparse.ArgumentParser()
+    FORMAT = "%(threadName)s %(asctime)-15s %(levelname)s:%(name)s %(message)s"
+    logging.basicConfig(level=logging.INFO, format=FORMAT)
+
+    p = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("mountpoint", nargs=1, help="Target directory")
     p.add_argument("--max_background", type=int, default=15,
                    help="Maximum number of background threads")
     p.add_argument("--no_foreground", action="store_true", default=False,
                    help="Fork into background as a daemon")
-    p.add_argument("--debug", action="store_true", help="Stay foreground")
-    p.add_argument("--nothreads", action="store_true", help="Stay foreground")
-    p.add_argument("--connect_timeout", type=int,
-                   default=Config.timeout[0], help="HTTP connect timeout")
-    p.add_argument("--read_timeout", type=int,
-                   default=Config.timeout[1], help="HTTP read timeout")
+    p.add_argument("--debug", action="store_true", help="Enable fuse debug")
+    p.add_argument("--nothreads", action="store_true",
+                   help="Disable fuse threads")
+    p.add_argument("--connect_timeout", type=int, default=Config.timeout[0],
+                   help="HTTP connect timeout")
+    p.add_argument("--read_timeout", type=int, default=Config.timeout[1],
+                   help="HTTP read timeout")
+    p.add_argument("--no-verify", action="store_true",
+                   help="Disable ssl verify")
 
     args = vars(p.parse_args(sys.argv[1:]))
-    kwargs = {}
+
     Config.timeout = (args.pop("connect_timeout"), args.pop("read_timeout"))
     Config.mountpoint = args.pop("mountpoint")[0]
+    Config.verify = not args.pop("no_verify")
+    kwargs = {}
     if not args.pop("no_foreground"):
         kwargs["foreground"] = True
     if args.pop("debug"):
         kwargs["debug"] = True
     kwargs.update(args)
 
-    fuse = fuse.FUSE(HttpFs(), Config.mountpoint, **kwargs)
+    fuse = fuse.FUSE(Httpfs(), Config.mountpoint, **kwargs)
