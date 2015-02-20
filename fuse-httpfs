@@ -20,6 +20,7 @@ logging.basicConfig(level=logging.INFO, format=FORMAT)
 class Config(object):
     mountpoint = None
     timeout = (5, 25)  # connect_timeout, read_timeout
+    verify = None
 
 
 def readNetrcMachines():
@@ -144,6 +145,7 @@ class Server(Directory):
     def __init__(self, parent, name):
         super().__init__(parent, name)
         self.session = requests.Session()
+        self.session.verify = Config.verify
 
     def getSession(self):
         return self.session
@@ -282,23 +284,28 @@ class HttpFs(fuse.LoggingMixIn, fuse.Operations):
 
 if __name__ == '__main__':
     import argparse
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("mountpoint", nargs=1, help="Target directory")
     p.add_argument("--max_background", type=int, default=15,
                    help="Maximum number of background threads")
     p.add_argument("--no_foreground", action="store_true", default=False,
                    help="Fork into background as a daemon")
-    p.add_argument("--debug", action="store_true", help="Stay foreground")
-    p.add_argument("--nothreads", action="store_true", help="Stay foreground")
+    p.add_argument("--debug", action="store_true", help="Enable fuse debug")
+    p.add_argument("--nothreads", action="store_true",
+                   help="Disable fuse threads")
     p.add_argument("--connect_timeout", type=int,
                    default=Config.timeout[0], help="HTTP connect timeout")
     p.add_argument("--read_timeout", type=int,
                    default=Config.timeout[1], help="HTTP read timeout")
+    p.add_argument("--no-verify", action="store_true", help="Disable ssl verify")
 
     args = vars(p.parse_args(sys.argv[1:]))
-    kwargs = {}
+
     Config.timeout = (args.pop("connect_timeout"), args.pop("read_timeout"))
     Config.mountpoint = args.pop("mountpoint")[0]
+    Config.verify = not args.pop("no_verify")
+    kwargs = {}
     if not args.pop("no_foreground"):
         kwargs["foreground"] = True
     if args.pop("debug"):

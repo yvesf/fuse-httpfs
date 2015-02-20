@@ -1,15 +1,8 @@
+===========
 fuse-httpfs
 ===========
 
 python-requests based fuse read-only filesystem
-
-Requirements
-------------
-
-* fusepy
-
-* requests
-* fusepy
 
 Usage
 -----
