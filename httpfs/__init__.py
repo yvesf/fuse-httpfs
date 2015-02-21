@@ -19,6 +19,7 @@ class Config(object):
     mountpoint = None
     timeout = (5, 25)  # connect_timeout, read_timeout
     verify = None
+    system_ca = None
 
 
 class Path:
@@ -39,8 +40,6 @@ class Path:
     @classmethod
     def fromPath(clazz, parent, pathElement):
         p = clazz(parent, unquote(pathElement))
-        if (pathElement == ""):
-            raise SystemExit(1)
         logging.info("created {} '{}' referencing {}".format(
             clazz.__name__, p.name, p.buildUrl()))
         return p
@@ -135,7 +134,15 @@ class Server(Directory):
     def __init__(self, parent, name):
         super().__init__(parent, name)
         self.session = requests.Session()
-        self.session.verify = Config.verify
+        if Config.verify == "default":
+            pass
+        elif Config.verify == "system":
+            self.session.verify = Config.system_ca
+        elif Config.verify == "none":
+            logging.warn("SSL Verification disabled!")
+            self.session.verify = False
+        else:
+            raise SystemExit("Invalid value for ssl verification")
 
     def getSession(self):
         return self.session
@@ -204,13 +211,13 @@ class Httpfs(fuse.LoggingMixIn, fuse.Operations):
             logging.warn("No .netrc file found, no default machines")
 
     def getattr(self, path, fh=None):
-        logging.info("getattr path={}".format(path))
+        logging.debug("getattr path={}".format(path))
         try:
             entry = self._getPath(path)
             if entry:
                 return entry.getAttr()
         except Exception as e:
-            logging.error("Error", e)
+            logging.exception("Error in getattr(%s)", path)
             raise fuse.FuseOSError(EHOSTUNREACH)
         raise fuse.FuseOSError(ENOENT)
 
@@ -265,15 +272,19 @@ class Httpfs(fuse.LoggingMixIn, fuse.Operations):
         return prevEntry.entries[lastElement]
 
     def readdir(self, path, fh):
-        logging.info("readdir path=%s", path)
-        entry = self._getPath(path)
-        if not entry:
-            raise fuse.FuseOSError(EBADF)
-        if not entry.initialized:
-            entry.init()
-        return [(".", entry.getAttr(), 0),
-                ("..", (entry.parent and entry.parent.getAttr() or None), 0)] \
-            + [(it.name, it.getAttr(), 0) for it in entry.entries.values()]
+        try:
+            logging.debug("readdir path=%s", path)
+            entry = self._getPath(path)
+            if not entry:
+                raise fuse.FuseOSError(EBADF)
+            if not entry.initialized:
+                entry.init()
+            return [(".", entry.getAttr(), 0),
+                    ("..", (entry.parent and entry.parent.getAttr() or None), 0)] \
+                + [(it.name, it.getAttr(), 0) for it in entry.entries.values()]
+        except Exception as e:
+            logging.exception("Error in readdir(%s)", path)
+            raise fuse.FuseOSError(EIO)
 
     def read(self, path, size, offset, fh):
         entry = self._getPath(path)

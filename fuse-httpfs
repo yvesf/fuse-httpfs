@@ -1,38 +1,43 @@
 #!/usr/bin/env python3
-from httpfs import *
+import sys
+import fuse
+import logging
+import argparse
+from httpfs import Config, Httpfs
 
-if __name__ == '__main__':
-    import logging
-    FORMAT = "%(threadName)s %(asctime)-15s %(levelname)s:%(name)s %(message)s"
-    logging.basicConfig(level=logging.INFO, format=FORMAT)
+FORMAT = "%(threadName)s %(asctime)-15s %(levelname)s:%(name)s %(message)s"
+logging.basicConfig(level=logging.INFO, format=FORMAT)
 
-    import argparse
-    p = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("mountpoint", nargs=1, help="Target directory")
-    p.add_argument("--max_background", type=int, default=15,
-                   help="Maximum number of background threads")
-    p.add_argument("--no_foreground", action="store_true", default=False,
-                   help="Fork into background as a daemon")
-    p.add_argument("--debug", action="store_true", help="Enable fuse debug")
-    p.add_argument("--nothreads", action="store_true",
-                   help="Disable fuse threads")
-    p.add_argument("--connect_timeout", type=int,
-                   default=Config.timeout[0], help="HTTP connect timeout")
-    p.add_argument("--read_timeout", type=int,
-                   default=Config.timeout[1], help="HTTP read timeout")
-    p.add_argument("--no-verify", action="store_true", help="Disable ssl verify")
+p = argparse.ArgumentParser(
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+p.add_argument("mountpoint", help="Target directory")
+p.add_argument("--max_background", type=int, default=15,
+               help="Maximum number of background threads")
+p.add_argument("--no_foreground", action="store_true", default=False,
+               help="Fork into background as a daemon")
+p.add_argument("--debug", action="store_true", help="Enable fuse debug")
+p.add_argument("--nothreads", action="store_true",
+               help="Disable fuse threads")
+p.add_argument("--connect_timeout", type=int,
+               default=Config.timeout[0], help="HTTP connect timeout")
+p.add_argument("--read_timeout", type=int,
+               default=Config.timeout[1], help="HTTP read timeout")
+p.add_argument("--ssl", choices=["default", "system", "none"],
+               help="SSL Verification", default="default")
+p.add_argument("--system-ca", default="/etc/ssl/certs/ca-certificates.crt",
+               help="Path to system ca bundle")
 
-    args = vars(p.parse_args(sys.argv[1:]))
+args = vars(p.parse_args(sys.argv[1:]))
 
-    Config.timeout = (args.pop("connect_timeout"), args.pop("read_timeout"))
-    Config.mountpoint = args.pop("mountpoint")[0]
-    Config.verify = not args.pop("no_verify")
-    kwargs = {}
-    if not args.pop("no_foreground"):
-        kwargs["foreground"] = True
-    if args.pop("debug"):
-        kwargs["debug"] = True
-    kwargs.update(args)
+Config.timeout = (args.pop("connect_timeout"), args.pop("read_timeout"))
+Config.mountpoint = args.pop("mountpoint")
+Config.verify = args.pop("ssl")
+Config.system_ca = args.pop("system_ca")
+kwargs = {}
+if not args.pop("no_foreground"):
+    kwargs["foreground"] = True
+if args.pop("debug"):
+    kwargs["debug"] = True
+kwargs.update(args)
 
-    fuse = fuse.FUSE(Httpfs(), Config.mountpoint, **kwargs)
+fuse = fuse.FUSE(Httpfs(), Config.mountpoint, **kwargs)
