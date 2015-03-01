@@ -29,7 +29,7 @@ class Path:
         self.initialized = False
 
     def buildUrl(self):
-        return self.parent.buildUrl() + "/" + quote(self.name)
+        return self.parent.buildUrl() + "/" + quote(self.name.encode('utf-8'))
 
     def getSession(self):
         return self.parent.getSession()
@@ -39,6 +39,8 @@ class Path:
 
     @classmethod
     def fromPath(clazz, parent, pathElement):
+        if type(pathElement) == bytes:
+            pathElement = pathElement.decode('utf-8')
         p = clazz(parent, unquote(pathElement))
         logging.info("created {} '{}' referencing {}".format(
             clazz.__name__, p.name, p.buildUrl()))
@@ -99,7 +101,7 @@ class Directory(Path):
         self.entries = {}
 
     def init(self):
-        url = self.buildUrl()
+        url = self.buildUrl() + "/"
         logging.info("Directory url={} name={}".format(url, self.name))
         r = self.getSession().get(url, stream=True, timeout=Config.timeout)
         if r.status_code != 200:
