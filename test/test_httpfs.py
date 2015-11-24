@@ -6,19 +6,22 @@ from stat import S_IFDIR, S_IFREG
 from http.server import HTTPServer
 from http.server import SimpleHTTPRequestHandler
 
-from httpfs import Httpfs
+import httpfs
 
 
-def translate_path(p):
-    return "test/testwww/" + p
+def get_fs_path(p):
+    path = os.path.join(os.path.dirname(__file__),
+                        "testwww", os.path.relpath(p))
+    logging.info("get_fs_path: translated path %s -> %s", p, path)
+    return path
 
 
 class Handler(SimpleHTTPRequestHandler):
+
     def translate_path(self, path):
-        p = super().translate_path(path)
-        pNew = translate_path(os.path.relpath(p))
-        logging.info("translated %s to %s", p, pNew)
-        return pNew
+        path_new = get_fs_path(super().translate_path(path))
+        logging.info("translated %s to %s", path, path_new)
+        return path_new
 
     def handle_one_request(self, *a):
         SimpleHTTPRequestHandler.handle_one_request(self, *a)
@@ -26,13 +29,16 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 class TestBase(TestCase):
+
     def setUp(self):
         self.server = HTTPServer(('', 0), Handler)
         self.server.requests = []
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.daemon = True
         self.server_thread.start()
-        self.httpfs = Httpfs()
+
+        httpfs.Config.verify = "default"
+        self.httpfs = httpfs.Httpfs()
         self.port = self.server.socket.getsockname()[1]
 
     def tearDown(self):
@@ -43,11 +49,11 @@ class TestBase(TestCase):
         return "/http/localhost:{}".format(self.port)
 
     def stat(self, path):
-        logging.info("Translate path %s -> %s", path, translate_path(path))
-        return os.stat(translate_path(path))
+        return os.stat(get_fs_path(path))
 
 
 class TestZwei(TestBase):
+
     def test_root(self):
         r = self.httpfs.readdir(self.basePath(), None)
         self.assertEqual(len(self.server.requests), 2)  # made 2 requests
@@ -65,9 +71,19 @@ class TestZwei(TestBase):
     def test_dir(self):
         r = self.httpfs.readdir(self.basePath() + "/", None)
         self.assertEqual(len(r), 4)
+
         r = self.httpfs.readdir(self.basePath() + "/dir", None)
-        self.assertEqual(len(r), 4)
+        self.assertEqual(len(r), 5)
+
+    def test_subdir(self):
+        r = self.httpfs.readdir(self.basePath() + "/dir/subdir", None)
+        self.assertEqual(len(r), 3)
+
+    def test_dir_ending_slash(self):
+        r = self.httpfs.readdir(self.basePath() + "/dir/", None)
+        self.assertEqual(len(r), 5)
 
     def test_read(self):
-        r = self.httpfs.read(self.basePath() + "/dir/bla1", 1000, 0, None)
-        self.assertEqual(r.strip(), b"bla1")
+        expected = open(get_fs_path("dir/bla1"), "rb").read()
+        result = self.httpfs.read(self.basePath() + "/dir/bla1", 1000, 0, None)
+        self.assertEqual(expected, result)

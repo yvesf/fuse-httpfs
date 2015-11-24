@@ -5,7 +5,8 @@ import logging
 import argparse
 from httpfs import Config, Httpfs
 
-FORMAT = "%(threadName)s %(asctime)-15s %(levelname)s:%(name)s %(message)s"
+FORMAT = "%(threadName)s %(asctime)-15s %(levelname)s:%(name)s " + \
+    "%(filename)s:%(lineno)s %(message)s"
 logging.basicConfig(level=logging.INFO, format=FORMAT)
 
 p = argparse.ArgumentParser(
@@ -18,10 +19,8 @@ p.add_argument("--no_foreground", action="store_true", default=False,
 p.add_argument("--debug", action="store_true", help="Enable fuse debug")
 p.add_argument("--nothreads", action="store_true",
                help="Disable fuse threads")
-p.add_argument("--connect_timeout", type=int,
-               default=Config.timeout[0], help="HTTP connect timeout")
-p.add_argument("--read_timeout", type=int,
-               default=Config.timeout[1], help="HTTP read timeout")
+p.add_argument("--timeout", type=float, default=None,
+               help="HTTP connect and read timeout")
 p.add_argument("--ssl", choices=["default", "system", "none"],
                help="SSL Verification", default="default")
 p.add_argument("--system-ca", default="/etc/ssl/certs/ca-certificates.crt",
@@ -29,7 +28,7 @@ p.add_argument("--system-ca", default="/etc/ssl/certs/ca-certificates.crt",
 
 args = vars(p.parse_args(sys.argv[1:]))
 
-Config.timeout = (args.pop("connect_timeout"), args.pop("read_timeout"))
+Config.timeout = args.pop("timeout")
 Config.mountpoint = args.pop("mountpoint")
 Config.verify = args.pop("ssl")
 Config.system_ca = args.pop("system_ca")

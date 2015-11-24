@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import sys
 import time
@@ -17,12 +16,13 @@ import requests
 
 class Config(object):
     mountpoint = None
-    timeout = (5, 25)  # connect_timeout, read_timeout
+    timeout = None
     verify = None
     system_ca = None
 
 
 class Path:
+
     def __init__(self, parent, name):
         self.parent = parent
         self.name = name
@@ -48,17 +48,26 @@ class Path:
 
 
 class File(Path):
+
     def __init__(self, parent, name):
         super().__init__(parent, name)
         self.lastModified = None
         self.size = None
+        self.mode = 0o444
 
     def init(self):
         url = self.buildUrl()
         logging.info("File url={} name={}".format(url, self.name))
-        r = self.getSession().head(url, timeout=Config.timeout)
+        r = self.getSession().head(url, timeout=Config.timeout,
+                                   allow_redirects=True)
         r.close()
-        if r.status_code != 200:
+        if r.status_code >= 400 and r.status_code <= 499:
+            self.size = 0
+            self.mode = 0o000
+            self.initialized = True
+            self.lastModified = 0
+            return
+        elif r.status_code != 200:
             error = "Status code != 200 for {}: {}".format(url, r.status_code)
             raise Exception(error)
         self.size = int(r.headers['content-length'])
@@ -71,7 +80,7 @@ class File(Path):
         if not self.initialized:
             self.init()
         url = self.buildUrl()
-        bytesRange = '{}-{}'.format(offset, min(self.size, offset+size-1))
+        bytesRange = '{}-{}'.format(offset, min(self.size, offset + size - 1))
         headers = {'range': 'bytes=' + bytesRange}
         logging.info("File.get url={} range={}".format(url, bytesRange))
         r = self.getSession().get(url, headers=headers, timeout=Config.timeout)
@@ -91,20 +100,30 @@ class File(Path):
         if not self.initialized:
             self.init()
         t = self.lastModified
-        return dict(st_mode=(S_IFREG | 0o444), st_nlink=1, st_size=self.size,
-                    st_ctime=t, st_mtime=t, st_atime=t)
+        return dict(st_mode=(S_IFREG | self.mode), st_nlink=1,
+                    st_size=self.size,
+                    st_ctime=t, st_mtime=t, st_atime=t,
+                    st_uid=os.getuid(), st_gid=os.getgid())
 
 
 class Directory(Path):
+
     def __init__(self, parent, name):
         super().__init__(parent, name)
         self.entries = {}
+        self.mode = 0o555
 
     def init(self):
         url = self.buildUrl() + "/"
         logging.info("Directory url={} name={}".format(url, self.name))
         r = self.getSession().get(url, stream=True, timeout=Config.timeout)
-        if r.status_code != 200:
+        if r.status_code >= 400 and r.status_code <= 499:
+            self.mode = 0o000
+            logging.info("Directory is 4xx {}".format(url))
+            r.close()
+            self.initialized = True
+            return
+        elif r.status_code != 200:
             raise Exception("Status code not 200 for {}: {}".format(
                 url, r.status_code))
 
@@ -128,14 +147,17 @@ class Directory(Path):
         nentries = 1
         if self.initialized:
             nentries += len(self.entries)
-        return dict(st_mode=(S_IFDIR | 0o555), st_nlink=nentries,
-                    st_ctime=t, st_mtime=t, st_atime=t)
+        return dict(st_mode=(S_IFDIR | self.mode), st_nlink=nentries,
+                    st_ctime=t, st_mtime=t, st_atime=t,
+                    st_uid=os.getuid(), st_gid=os.getgid())
 
 
 class Server(Directory):
+
     def __init__(self, parent, name):
         super().__init__(parent, name)
         self.session = requests.Session()
+        self.session.allow_redirects = True
         if Config.verify == "default":
             pass
         elif Config.verify == "system":
@@ -154,6 +176,7 @@ class Server(Directory):
 
 
 class Schema(Directory):
+
     def __init__(self, parent, name):
         super().__init__(parent, name)
         self.initialized = True
@@ -163,6 +186,7 @@ class Schema(Directory):
 
 
 class Root(Directory):
+
     def __init__(self):
         super().__init__(None, "")
         self.initialized = True
@@ -172,6 +196,7 @@ class Root(Directory):
 
 
 class RelativeLinkCollector(HTMLParser):
+
     def __init__(self, parent):
         super().__init__(self, convert_charrefs=True)
         self.parent = parent
@@ -195,6 +220,7 @@ class RelativeLinkCollector(HTMLParser):
 
 class Httpfs(fuse.LoggingMixIn, fuse.Operations):
     """A read only http/https/ftp filesystem using python-requests."""
+
     def __init__(self):
         self.root = Root()
 
@@ -235,6 +261,7 @@ class Httpfs(fuse.LoggingMixIn, fuse.Operations):
 
         schema, *p = path[1:].split("/")
         if schema not in self.root.entries:
+            logging.debug("schema %s not in root.entries", schema)
             return None
         prevEntry = self.root.entries[schema]
         if p == []:
@@ -262,14 +289,16 @@ class Httpfs(fuse.LoggingMixIn, fuse.Operations):
                 # the server don't return it, then just create it
                 # assuming its an directory, if a HEAD is successful
                 d = Directory.fromPath(prevEntry, lastElement)
-                r = d.getSession().head(d.buildUrl(),
-                                        timeout=Config.timeout)
+                url = d.buildUrl()
+                r = d.getSession().head(url, timeout=Config.timeout,
+                                        allow_redirects=True)
                 if r.status_code == 200:
-                    logging.info("Create directory for path which was not " +
-                                 "discovered by Index of: {}".format(path))
+                    logging.info("Create directory for path: {} " +
+                                 "at: {}".format(path, url))
                     prevEntry.entries[lastElement] = d
                 else:
-                    logging.info("Path not found: {}".format(path))
+                    logging.info("Path not found ({}): {} for {}".format(
+                        r.status_code, path, url))
                     return None
         return prevEntry.entries[lastElement]
 

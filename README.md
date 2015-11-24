@@ -1,19 +1,18 @@
-===========
-fuse-httpfs
-===========
+# fuse-httpfs
 
 python-requests based fuse read-only filesystem
 
-Usage
------
+## Usage
 
-### Setup
+python3 dependencies:
 
-Create a directory to be used as a mountpoint.
+* requests
+* fusepy
 
-### Starting
+### Mount
 
-run with --help
+* Create a directory to be used as a mountpoint.
+* run with --help
 
 ### Using
 
