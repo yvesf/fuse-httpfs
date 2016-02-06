@@ -13,7 +13,7 @@ setup(
     download_url="https://github.com/yvesf/fuse-httpfs/archive/v{}.tar.gz".format(version),
     license='LICENSE.txt',
     description='A fuse filesystem for common http Index of pages.',
-    long_description=open('README.txt').read(),
+    long_description=open('README.md').read(),
     install_requires=[
         "fusepy",
         "requests",
