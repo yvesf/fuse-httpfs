@@ -14,7 +14,7 @@ import fuse
 import requests
 
 
-class Config(object):
+class Config:
     mountpoint = None
     timeout = None
     verify = None
@@ -163,7 +163,7 @@ class Server(Directory):
         elif Config.verify == "system":
             self.session.verify = Config.system_ca
         elif Config.verify == "none":
-            logging.warn("SSL Verification disabled!")
+            logging.warning("SSL Verification disabled!")
             self.session.verify = False
         else:
             raise SystemExit("Invalid value for ssl verification")
@@ -198,7 +198,7 @@ class Root(Directory):
 class RelativeLinkCollector(HTMLParser):
 
     def __init__(self, parent):
-        super().__init__(self, convert_charrefs=True)
+        super().__init__(convert_charrefs=True)
         self.parent = parent
         self.entries = {}
 
@@ -236,7 +236,7 @@ class Httpfs(fuse.LoggingMixIn, fuse.Operations):
             for machine in netrc.netrc().hosts.keys():
                 yield (machine, Server(parent, machine))
         except IOError as e:
-            logging.warn("No .netrc file found, no default machines")
+            logging.warning("No .netrc file found, no default machines")
 
     def getattr(self, path, fh=None):
         logging.debug("getattr path={}".format(path))
