@@ -3,7 +3,6 @@ import sys
 import time
 import netrc
 import logging
-import logging.config
 from urllib.parse import quote, unquote
 from email.utils import parsedate
 from html.parser import HTMLParser
@@ -207,10 +206,11 @@ class RelativeLinkCollector(HTMLParser):
             attrs = dict(attrs)
             if "href" in attrs:
                 href = attrs["href"]
-                if "/" in href[:-1] or href[0] == ".":
+                if "/" in href[:-1] or href[0] == "." or href == "/":
                     return
 
                 if href[-1:] == "/":
+                    # ends with / => directory
                     d = Directory.fromPath(self.parent, href[:-1])
                     self.entries[unquote(href[:-1])] = d
                 else:
@@ -293,7 +293,7 @@ class Httpfs(fuse.LoggingMixIn, fuse.Operations):
                 r = d.getSession().head(url, timeout=Config.timeout,
                                         allow_redirects=True)
                 if r.status_code == 200:
-                    logging.info("Create directory for path: {} " +
+                    logging.info("Create directory for path: {} "
                                  "at: {}".format(path, url))
                     prevEntry.entries[lastElement] = d
                 else:
@@ -310,9 +310,12 @@ class Httpfs(fuse.LoggingMixIn, fuse.Operations):
                 raise fuse.FuseOSError(EBADF)
             if not entry.initialized:
                 entry.init()
-            return [(".", entry.getAttr(), 0),
-                    ("..", (entry.parent and entry.parent.getAttr() or None), 0)] \
-                + [(it.name, it.getAttr(), 0) for it in entry.entries.values()]
+            return [
+                (".", entry.getAttr(), 0),
+                ("..", (entry.parent and entry.parent.getAttr() or None), 0)
+                ] + [
+                (it.name, it.getAttr(), 0) for it in entry.entries.values()
+                ]
         except Exception as e:
             logging.exception("Error in readdir(%s)", path)
             raise fuse.FuseOSError(EIO)
