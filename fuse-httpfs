@@ -16,12 +16,14 @@ p.add_argument("--max_background", type=int, default=15,
                help="Maximum number of background threads")
 p.add_argument("--no_foreground", action="store_true", default=False,
                help="Fork into background as a daemon")
-p.add_argument("--debug", action="store_true", 
+p.add_argument("--debug", action="store_true",
                help="Enable debug logging")
 p.add_argument("--debug-requests", action="store_true",
                help="Enable python-requests debug logging")
 p.add_argument("--nothreads", action="store_true",
                help="Disable fuse threads")
+p.add_argument("--poolsize", type=int, default=httpfs.Config.poolsize,
+               help="Max no. of concurrent http requests")
 p.add_argument("--timeout", type=float, default=None,
                help="HTTP connect and read timeout")
 p.add_argument("--ssl", choices=["default", "system", "none"],
@@ -35,6 +37,7 @@ httpfs.Config.timeout = args.pop("timeout")
 httpfs.Config.mountpoint = args.pop("mountpoint")
 httpfs.Config.verify = args.pop("ssl")
 httpfs.Config.system_ca = args.pop("system_ca")
+httpfs.Config.poolsize = args.pop("poolsize")
 kwargs = {}
 if not args.pop("no_foreground"):
     kwargs["foreground"] = True

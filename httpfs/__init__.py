@@ -8,6 +8,7 @@ from email.utils import parsedate
 from html.parser import HTMLParser
 from stat import S_IFDIR, S_IFREG
 from errno import EIO, ENOENT, EBADF, EHOSTUNREACH
+from multiprocessing import dummy as mp
 
 import fuse
 import requests
@@ -15,11 +16,13 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+
 class Config:
     mountpoint = None
     timeout = None
     verify = None
     system_ca = None
+    poolsize = 15
 
 
 class Path:
@@ -140,6 +143,11 @@ class Directory(Path):
         self.entries.update(parser.entries)
         r.close()
 
+        files = filter(lambda obj: isinstance(obj, File),
+                       self.entries.values())
+        pool = mp.Pool(Config.poolsize)
+        pool.map(lambda it: it.init(), files)
+
         logger.info("Diretory loaded {}".format(url))
         self.initialized = True
 
@@ -159,6 +167,8 @@ class Server(Directory):
         super().__init__(parent, name)
         self.session = requests.Session()
         self.session.allow_redirects = True
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=Config.poolsize, pool_maxsize=Config.poolsize)
         if Config.verify == "default":
             pass
         elif Config.verify == "system":
@@ -297,7 +307,7 @@ class Httpfs(fuse.LoggingMixIn, fuse.Operations):
                                         allow_redirects=True)
                 if r.status_code == 200:
                     logger.info("Create directory for path: {} "
-                                 "at: {}".format(path, url))
+                                "at: {}".format(path, url))
                     prevEntry.entries[lastElement] = d
                 else:
                     logger.info("Path not found ({}): {} for {}".format(
