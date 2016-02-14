@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from distutils.core import setup
-version='0.3'
+version='0.4'
 
 setup(
     name='fuse-httpfs',
