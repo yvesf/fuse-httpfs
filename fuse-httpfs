@@ -3,7 +3,7 @@ import sys
 import fuse
 import logging
 import argparse
-from httpfs import Config, Httpfs
+import httpfs
 
 FORMAT = "%(threadName)s %(asctime)-15s %(levelname)s:%(name)s " + \
     "%(filename)s:%(lineno)s %(message)s"
@@ -28,15 +28,17 @@ p.add_argument("--system-ca", default="/etc/ssl/certs/ca-certificates.crt",
 
 args = vars(p.parse_args(sys.argv[1:]))
 
-Config.timeout = args.pop("timeout")
-Config.mountpoint = args.pop("mountpoint")
-Config.verify = args.pop("ssl")
-Config.system_ca = args.pop("system_ca")
+httpfs.Config.timeout = args.pop("timeout")
+httpfs.Config.mountpoint = args.pop("mountpoint")
+httpfs.Config.verify = args.pop("ssl")
+httpfs.Config.system_ca = args.pop("system_ca")
 kwargs = {}
 if not args.pop("no_foreground"):
     kwargs["foreground"] = True
 if args.pop("debug"):
     kwargs["debug"] = True
+    print(httpfs.__name__)
+    logging.getLogger(httpfs.__name__).setLevel(logging.DEBUG)
 kwargs.update(args)
 
-fuse = fuse.FUSE(Httpfs(), Config.mountpoint, **kwargs)
+fuse = fuse.FUSE(httpfs.Httpfs(), httpfs.Config.mountpoint, **kwargs)
