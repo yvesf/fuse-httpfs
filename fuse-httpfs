@@ -16,7 +16,10 @@ p.add_argument("--max_background", type=int, default=15,
                help="Maximum number of background threads")
 p.add_argument("--no_foreground", action="store_true", default=False,
                help="Fork into background as a daemon")
-p.add_argument("--debug", action="store_true", help="Enable fuse debug")
+p.add_argument("--debug", action="store_true", 
+               help="Enable debug logging")
+p.add_argument("--debug-requests", action="store_true",
+               help="Enable python-requests debug logging")
 p.add_argument("--nothreads", action="store_true",
                help="Disable fuse threads")
 p.add_argument("--timeout", type=float, default=None,
@@ -37,8 +40,9 @@ if not args.pop("no_foreground"):
     kwargs["foreground"] = True
 if args.pop("debug"):
     kwargs["debug"] = True
-    print(httpfs.__name__)
     logging.getLogger(httpfs.__name__).setLevel(logging.DEBUG)
+if args.pop("debug_requests"):
+    logging.getLogger("requests.packages.urllib3").setLevel(logging.DEBUG)
 kwargs.update(args)
 
 fuse = fuse.FUSE(httpfs.Httpfs(), httpfs.Config.mountpoint, **kwargs)
