@@ -208,7 +208,8 @@ class RelativeLinkCollector(HTMLParser):
             attrs = dict(attrs)
             if "href" in attrs:
                 href = attrs["href"]
-                if "/" in href[:-1] or href[0] == "." or href == "/":
+                if "/" in href[:-1] or href[0] == "." \
+                        or href[0] == "?" or href == "/":
                     return
 
                 if href[-1:] == "/":
